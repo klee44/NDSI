@@ -3,6 +3,10 @@ Code for neural dynamical system identification with structure preservation
 
 ## Paper
 Structure-preserving Sparse Identification of Nonlinear Dynamics for Data-driven Modeling
+<p>
+<a href="https://arxiv.org/abs/2109.05364"><img src="https://img.shields.io/badge/arXiv-2109.05364-red" alt="arXiv" /></a>
+<a href="https://proceedings.mlr.press/v190/lee22a/lee22a.pdf"><img src="https://img.shields.io/badge/MSML-2022-blueviolet" alt="Conference" /></a>
+</p>
 
 ## Citation
 ```
