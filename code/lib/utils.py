@@ -69,6 +69,17 @@ def get_batch(data, t, batch_len=60, batch_size=100, device = torch.device("cpu"
 		batch_y = batch_y.flip([1])
 	return batch_y0.to(device), batch_t.to(device), batch_y.to(device)
 
+def get_batch_two_single_time(data, t, batch_len=60, batch_size=100, device = torch.device("cpu"), reverse=False):
+	s = torch.from_numpy(np.random.choice(np.arange(len(t) - batch_len, dtype=np.int64), batch_size, replace=False))
+	batch_y0 = data[0,s,:]  # (M, D)
+	batch_t = t[s:s+batch_len]  # (T)
+	batch_y = torch.stack([data[0,s + i,:] for i in range(batch_len)], dim=1)  # (T, M, D)
+	
+	batch_y0_backward = batch_y[:,-1,:]
+	batch_t_backward = batch_t.flip([0])
+	batch_y_backward = batch_y.flip([1])
+	return batch_y0.to(device), batch_t.to(device), batch_y.to(device), batch_y0_backward.to(device), batch_t_backward.to(device), batch_y_backward.to(device)
+
 class TotalDegree(nn.Module):
 	def __init__(self, dim, order):
 		super(TotalDegree, self).__init__()
