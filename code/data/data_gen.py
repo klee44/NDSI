@@ -9,6 +9,13 @@ from torchdiffeq import odeint
 def cubic_rhs(t,x):
 	return torch.cat( (-0.1*x[:,0]**3+2.0*x[:,1]**3, -2.0*x[:,0]**3-0.1*x[:,1]**3), axis=-1)
 
+def lv_rhs(t,x):
+	alpha = 0.3543
+	beta = 0.4301
+	gamma = 0.3256
+	delta = 0.2500
+	return torch.cat( (alpha*x[:,0]-beta*x[:,0]*x[:,1], delta*x[:,0]*x[:,1]-gamma*x[:,1]), axis=-1)
+
 
 def simulation_run(eqtype, T, dt, ntrain, nval, ntest):
 	total_steps = int(T/dt)
@@ -18,6 +25,10 @@ def simulation_run(eqtype, T, dt, ntrain, nval, ntest):
 		n = 2
 		rhs = cubic_rhs
 		a, b = -1.0, 1.0
+	elif eqtype == "lv":
+		n = 2
+		rhs = lv_rhs
+		a, b = .25, 1.0
 		
 	train_data = np.zeros((ntrain, total_steps+1, n))
 	print('generating training trials ...')
