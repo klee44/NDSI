@@ -123,7 +123,7 @@ class POULayer(nn.Module):
 		self.npart = npart
 		self.npolydim = npoly+1
 		self.xrbf =  nn.Parameter(torch.linspace(0., 1., 2*npart+1)[1:-1][::2])
-		self.epsrbf = nn.Parameter(((.2)/npart)*torch.ones(npart))
+		self.epsrbf = nn.Parameter(torch.log(((.15)/npart)*torch.ones(npart)))
 		self.Ppow = torch.arange(0,float(self.npolydim))
 
 	def reset_parameters(self):
@@ -131,7 +131,7 @@ class POULayer(nn.Module):
 		
 	def getpoulayer(self, x):
 		rrbf = torch.transpose(torch.pow(torch.abs(x.unsqueeze(0)-self.xrbf.unsqueeze(1)),1), 1, 0) 
-		rbflayer = torch.exp(-(rrbf/(torch.pow(self.epsrbf,2.0)))) 
+		rbflayer = torch.exp(-(rrbf/(torch.pow(torch.exp(self.epsrbf),2.0)))) 
 		rbfsum = torch.sum(rbflayer, axis=1)
 		return torch.transpose(torch.transpose(rbflayer, 1, 0)/rbfsum, 1, 0)
 		        
