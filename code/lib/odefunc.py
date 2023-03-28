@@ -123,7 +123,8 @@ class POULayer(nn.Module):
 		self.npart = npart
 		self.npolydim = npoly+1
 		self.xrbf =  nn.Parameter(torch.linspace(0., 1., 2*npart+1)[1:-1][::2])
-		self.epsrbf = nn.Parameter(torch.log(((.15)/npart)*torch.ones(npart)))
+		#self.epsrbf = nn.Parameter(torch.log(((.15)/npart)*torch.ones(npart)))
+		self.epsrbf = nn.Parameter(torch.log(((.30)/npart)*torch.ones(npart)))
 		self.Ppow = torch.arange(0,float(self.npolydim))
 
 	def reset_parameters(self):
@@ -161,3 +162,77 @@ class POUPoly(POULayer):
 		return torch.nn.functional.linear(input, self.weight)
 
 
+class POULayerShared(nn.Module):
+	def __init__(self, npart=3, npoly=0, seqlen=35, bias=True):
+		super().__init__()
+		self.npart = npart
+		self.npolydim = npoly+1
+		self.Ppow = torch.arange(0,float(self.npolydim))
+		self.parts = None
+
+	def reset_parameters(self):
+		torch.nn.init.zeros_(self.coeffs)
+		        
+	def calculate_weights(self, t):
+		basis = torch.pow(t,self.Ppow)
+		poly = torch.einsum('ijk,k->ij',self.coeffs,basis)
+		return torch.einsum('ij,kj->i', poly, self.parts) 
+
+class POULinearShared(POULayerShared):
+	def __init__(self, in_features, out_features, npart=2, npoly=2, seqlen=35, bias=True):       
+		super().__init__(npart,npoly,seqlen,bias)
+        
+		self.in_features, self.out_features = in_features, out_features
+		self.seqlen = seqlen
+		self.weight = torch.Tensor(out_features, in_features)
+		if bias:
+			self.bias = torch.Tensor(out_features)
+		else:
+			self.register_parameter('bias', None)         
+		self.coeffs = torch.nn.Parameter(torch.Tensor((in_features+1)*out_features, self.npart, self.npolydim))        
+		nn.init.xavier_uniform_(self.coeffs) # this is for LV
+		                
+	def forward(self, input):
+		t = input[-1,-1] / self.seqlen
+		input = input[:,:-1]
+		w = self.calculate_weights(t)
+		self.weight = w[0:self.in_features*self.out_features].reshape(self.out_features, self.in_features)
+		self.bias = w[self.in_features*self.out_features:(self.in_features+1)*self.out_features].reshape(self.out_features)
+		return torch.nn.functional.linear(input, self.weight, self.bias)
+
+
+class ODEfuncPOUShared(nn.Module):
+	def __init__(self, nin=5, nlayer=4, nunit=50, nonlinear = nn.Tanh, npart=2, npoly=2, seqlen=35.0):
+		super(ODEfuncPOUShared, self).__init__()
+		
+		self.xrbf =  nn.Parameter(torch.linspace(0., 1., 2*npart+1)[1:-1][::2]) 
+		self.epsrbf = nn.Parameter(torch.log(((.15)/8)*torch.ones(npart)))
+		self.seqlen = seqlen
+
+		layers = [DepthCat(1)]
+		layers.append(POULinearShared(nin, nunit, npart, npoly, seqlen))
+		for i in range(nlayer-1):
+			layers.append(nonlinear())
+			layers.append(DepthCat(1))
+			layers.append(POULinearShared(nunit, nunit, npart, npoly, seqlen))
+		layers.append(nonlinear())
+		layers.append(DepthCat(1))
+		layers.append(POULinearShared(nunit, nin, npart, npoly, seqlen))
+		self.net = nn.Sequential(*layers)
+
+	def getpoulayer(self, x):
+		rrbf = torch.transpose(torch.pow(torch.abs(x.unsqueeze(0)-self.xrbf.unsqueeze(1)),1), 1, 0) 
+		rbflayer = torch.exp(-(rrbf/(torch.pow(self.epsrbf.exp(),2.0)))) 
+		rbfsum = torch.sum(rbflayer, axis=1)
+		return torch.transpose(torch.transpose(rbflayer, 1, 0)/rbfsum, 1, 0)
+		
+	def forward(self, t, y):
+		parts = self.getpoulayer(t/self.seqlen)
+		for _, module in self.net.named_modules():
+			if hasattr(module, 't'):
+				module.t = t
+
+			if hasattr(module, 'parts'):
+				module.parts = parts
+
+		return self.net(y)
