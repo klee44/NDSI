@@ -195,6 +195,7 @@ class POULinearShared(POULayerShared):
 	def forward(self, input):
 		t = input[-1,-1] / self.seqlen
 		input = input[:,:-1]
+
 		w = self.calculate_weights(t)
 		self.weight = w[0:self.in_features*self.out_features].reshape(self.out_features, self.in_features)
 		self.bias = w[self.in_features*self.out_features:(self.in_features+1)*self.out_features].reshape(self.out_features)
@@ -202,11 +203,13 @@ class POULinearShared(POULayerShared):
 
 
 class ODEfuncPOUShared(nn.Module):
-	def __init__(self, nin=5, nlayer=4, nunit=50, nonlinear = nn.Tanh, npart=2, npoly=2, seqlen=35.0):
+	def __init__(self, nin=5, nlayer=4, nunit=50, nonlinear = nn.Tanh, npart=2, npoly=2, seqlen=35.0, sigma=1.0):
 		super(ODEfuncPOUShared, self).__init__()
 		
 		self.xrbf =  nn.Parameter(torch.linspace(0., 1., 2*npart+1)[1:-1][::2]) 
-		self.epsrbf = nn.Parameter(torch.log(((.15)/8)*torch.ones(npart)))
+		#self.epsrbf = nn.Parameter(torch.log(((.15)/8)*torch.ones(npart)))
+		#self.epsrbf = nn.Parameter(torch.log((1.0)*torch.ones(npart)))
+		self.epsrbf = nn.Parameter(torch.log((sigma)*torch.ones(npart)))
 		self.seqlen = seqlen
 
 		layers = [DepthCat(1)]

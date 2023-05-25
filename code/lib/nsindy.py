@@ -451,8 +451,6 @@ def train_pou_ISTA_alt_mlp(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_met
 			proximal_pou(odefunc.net[1].coeffs, lam=l1_reg[1], eta=0.01)
 		#scheduler.step()
 		print(itr, loss.item())	
-	print(odefunc.net[1].coeffs)	
-
 
 def train_prune_pou_mlp(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_method, train_data, val_data, t, ckpt_path, fig_save_path, frame_index):
 	train_data = torch.tensor(train_data).unsqueeze(0)
@@ -462,16 +460,18 @@ def train_prune_pou_mlp(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_method
 	params_pou = nn.ParameterList([])
 	params_dict = nn.ParameterList([]) 
 	for n, p in odefunc.named_parameters():
-		if n == 'xrbf': 
+		if n[-3:] == 'rbf': 
 			print(n, p)
 			params_pou.append(p)
 		else:
 			params_dict.append(p)
 	optimizer = optim.Adamax([{'params': params_pou}, {'params':params_dict}], lr=lr[0])
 	optimizer.param_groups[0]['lr'] = lr[1] 
+	#optimizer = optim.Adamax([{'params':params_dict}], lr=lr[0])
 	#params = odefunc.parameters()
 	#optimizer = optim.Adamax(params, lr=lr)
-	scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.9987)
+	#scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.9987)
+	#scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.97)
 	
 	best_loss = 1e30
 	frame = frame_index 
@@ -486,57 +486,51 @@ def train_prune_pou_mlp(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_method
 			loss = torch.mean(torch.abs(pred_y_forward - batch_y_forward))
 			loss += torch.mean(torch.abs(pred_y_backward - batch_y_backward))
 			loss += torch.mean(torch.abs(pred_y_backward - pred_y_backward.flip(1)))
-			l1_norm = 5e-4*torch.norm(odefunc.net[1].coeffs, p=1)
-			loss += l1_norm
-			l2_norm = 5e-3*torch.sum(torch.norm(odefunc.net[1].coeffs, p=2, dim=0))
+			l2_norm = 1e-4*torch.sum(torch.norm(odefunc.net[1].coeffs, p=2, dim=0))
 			#loss += l2_norm
-			eps_l1_norm = 1e-4*torch.sum(torch.exp(odefunc.net[1].epsrbf))
-			#loss += eps_l1_norm
-			print(itr,i,loss.item(),l1_norm.item(),l2_norm.item(),eps_l1_norm.item())
+			print(itr,i,loss.item(),l2_norm.item())
 			loss.backward()
 			optimizer.step()
-			#if itr >= 5:
-			#	prune.global_unstructured(parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-6)
-		if itr < 1700:
-			scheduler.step()
+		#if itr < 1700:
+		#	scheduler.step()
 	
 		print(itr, loss.item())	
-		print(odefunc.net[1].coeffs)
-		'''
-		with torch.no_grad():
-			val_loss = 0
+		if itr % 10 == 0:
+			with torch.no_grad():
+				val_loss = 0
 
-			parts = odefunc.net[1].getpoulayer(t/t[-1])
-			pred_y = odeint(odefunc, train_data[:,0,:], t, method='rk4').transpose(0,1)
-			val_loss = torch.mean(torch.abs(pred_y - train_data)).item()
-			print('val loss', val_loss)
-				
-			if best_loss > val_loss:
-				print('saving...', val_loss)
-				torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
-				best_loss = val_loss 
+				parts = odefunc.getpoulayer(t/t[-1])
+				pred_y = odeint(odefunc, train_data[:,0,:], t, method='rk4').transpose(0,1)
+				val_loss = torch.mean(torch.abs(pred_y - train_data)).item()
+				print('val loss', val_loss)
+					
+				if best_loss > val_loss:
+					print('saving...', val_loss)
+					torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
+					best_loss = val_loss 
 
-			plt.figure()
-			plt.tight_layout()
-			save_file = os.path.join(fig_save_path,"image_{:03d}.png".format(frame))
-			fig = plt.figure(figsize=(12,4))
-			axes = []
-			for i in range(2):
-				axes.append(fig.add_subplot(1,3,i+1))
-				
-				axes[i].plot(t,train_data[0,:,i].detach().numpy(),lw=2,color='k')
-				axes[i].plot(t,pred_y.detach().numpy()[0,:,i],lw=2,color='c',ls='--')
+				plt.figure()
+				plt.tight_layout()
+				save_file = os.path.join(fig_save_path,"image_{:03d}.png".format(frame))
 
-			axes.append(fig.add_subplot(1,3,3))
-			for i in range(parts.shape[1]):
-				axes[2].plot(t/t[-1], parts[:,i].detach().numpy())
+				ndim = train_data.shape[2]
+				fig = plt.figure(figsize=(int(4*(ndim+1)),4))
+				axes = []
+				for i in range(ndim):
+					axes.append(fig.add_subplot(1,ndim+1,i+1))
+					
+					axes[i].plot(t,train_data[0,:,i].detach().numpy(),lw=2,color='k')
+					axes[i].plot(t,pred_y.detach().numpy()[0,:,i],lw=2,color='c',ls='--')
 
-			plt.savefig(save_file)
-			plt.close(fig)
-			plt.close('all')
-			plt.clf()
-			frame += 1
-		'''
+				axes.append(fig.add_subplot(1,ndim+1,ndim+1))
+				for i in range(parts.shape[1]):
+					axes[ndim].plot(t/t[-1], parts[:,i].detach().numpy())
+
+				plt.savefig(save_file)
+				plt.close(fig)
+				plt.close('all')
+				plt.clf()
+				frame += 1
 	ckpt = torch.load(ckpt_path)
 	odefunc.load_state_dict(ckpt['state_dict'])
 	
@@ -596,4 +590,251 @@ def train_pou_ISTA_mlp(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_method,
 			proximal_pou(odefunc.net[1].coeffs, lam=l1_reg[1], eta=0.01)
 		#scheduler.step()
 		print(itr, loss.item())	
-	print(odefunc.net[1].coeffs)	
+
+
+def train_prune_pou_mlp_anode(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_method, train_data, val_data, t, ckpt_path, fig_save_path, frame_index):
+	train_data = torch.tensor(train_data).unsqueeze(0)
+	
+	#parameters_to_prune = ((odefunc.net[1], "coeffs"),)
+	
+	params_pou = nn.ParameterList([])
+	params_dict = nn.ParameterList([]) 
+	for n, p in odefunc.named_parameters():
+		if n[-3:] == 'rbf': 
+			print(n, p)
+			params_pou.append(p)
+		else:
+			params_dict.append(p)
+	#optimizer = optim.Adamax([{'params': params_pou}, {'params':params_dict}], lr=lr[0])
+	#optimizer.param_groups[0]['lr'] = lr[1] 
+	optimizer = optim.Adamax([{'params':params_dict}], lr=lr[0])
+	#params = odefunc.parameters()
+	#optimizer = optim.Adamax(params, lr=lr)
+	#scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.9987)
+	
+	best_loss = 1e30
+	frame = frame_index 
+	
+	for itr in range(nepoch):
+		#print('=={0:d}=='.format(itr))
+		for i in range(niterbatch):
+			optimizer.zero_grad()
+			batch_y0, batch_t, batch_y_forward, batch_yT, batch_t_backward, batch_y_backward = utils.get_batch_two_single_time(train_data,t,lMB,nMB,reverse=False)
+			batch_y0 = torch.nn.functional.pad(batch_y0, (5,0), "constant", 0)
+			pred_y_forward = odeint(odefunc, batch_y0, batch_t, method=odeint_method).transpose(0,1)
+			loss = torch.mean(torch.abs(pred_y_forward[:,:,5:] - batch_y_forward))
+			l2_norm = 1e-4*torch.sum(torch.norm(odefunc.net[1].coeffs, p=2, dim=0))
+			#loss += l2_norm
+			print(itr,i,loss.item(),l2_norm.item())
+			loss.backward()
+			optimizer.step()
+		#if itr < 1700:
+		#	scheduler.step()
+	
+		print(itr, loss.item())	
+		if itr % 10 == 0:
+			with torch.no_grad():
+				val_loss = 0
+
+				parts = odefunc.getpoulayer(t/t[-1])
+				pred_y = odeint(odefunc, torch.nn.functional.pad(train_data[:,0,:],(5,0),"constant",0), t, method='rk4').transpose(0,1)[:,:,5:]
+				val_loss = torch.mean(torch.abs(pred_y - train_data)).item()
+				print('val loss', val_loss)
+					
+				if best_loss > val_loss:
+					print('saving...', val_loss)
+					torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
+					best_loss = val_loss 
+
+				plt.figure()
+				plt.tight_layout()
+				save_file = os.path.join(fig_save_path,"image_{:03d}.png".format(frame))
+
+				ndim = train_data.shape[2]
+				fig = plt.figure(figsize=(int(4*(ndim+1)),4))
+				axes = []
+				for i in range(ndim):
+					axes.append(fig.add_subplot(1,ndim+1,i+1))
+					
+					axes[i].plot(t,train_data[0,:,i].detach().numpy(),lw=2,color='k')
+					axes[i].plot(t,pred_y.detach().numpy()[0,:,i],lw=2,color='c',ls='--')
+
+				axes.append(fig.add_subplot(1,ndim+1,ndim+1))
+				for i in range(parts.shape[1]):
+					axes[ndim].plot(t/t[-1], parts[:,i].detach().numpy())
+
+				plt.savefig(save_file)
+				plt.close(fig)
+				plt.close('all')
+				plt.clf()
+				frame += 1
+	ckpt = torch.load(ckpt_path)
+	odefunc.load_state_dict(ckpt['state_dict'])
+	
+	#prune.remove(odefunc.net[1], 'coeffs')
+	torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
+
+
+def train_prune_pou_mlp_double(odefuncs, lr, nepoch, niterbatch, lMB, nMB, odeint_method, train_data, val_data, t, ckpt_path, fig_save_path, frame_index):
+	train_data = torch.tensor(train_data).unsqueeze(0)
+	
+	params_pou = nn.ParameterList([])
+	params_dict = nn.ParameterList([]) 
+	for i in range(len(odefuncs)):
+		for n, p in odefuncs[i].named_parameters():
+			if n == 'xrbf': 
+				print(n, p)
+				params_pou.append(p)
+			else:
+				params_dict.append(p)
+	optimizer = optim.Adamax([{'params': params_pou}, {'params':params_dict}], lr=lr[0])
+	optimizer.param_groups[0]['lr'] = lr[1] 
+	scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.9987)
+	
+	best_loss = 1e30
+	frame = frame_index 
+	
+	for itr in range(nepoch):
+		#print('=={0:d}=='.format(itr))
+		for i in range(niterbatch):
+			optimizer.zero_grad()
+			batch_y0, batch_t, batch_y_forward, batch_yT, batch_t_backward, batch_y_backward = utils.get_batch_two_single_time(train_data,t,lMB,nMB,reverse=False)
+			#batch_y0 = torch.nn.functional.pad(batch_y0, (5,0), "constant", 0)
+			pred_y_forward = (odeint(odefuncs[0], batch_y0, batch_t, method=odeint_method)+odeint(odefuncs[1], torch.zeros_like(batch_y0), batch_t, method=odeint_method)).transpose(0,1)
+			loss = torch.mean(torch.abs(pred_y_forward - batch_y_forward))
+			#l2_norm = 1e-4*torch.sum(torch.norm(odefunc.net[1].coeffs, p=2, dim=0))
+			#loss += l2_norm
+			#print(itr,i,loss.item(),l2_norm.item())
+			print(itr,i,loss.item())
+			loss.backward()
+			optimizer.step()
+		if itr < 1700:
+			scheduler.step()
+	
+		print(itr, loss.item())	
+		if itr % 10 == 0:
+			with torch.no_grad():
+				val_loss = 0
+
+				parts = odefuncs[1].getpoulayer(t/t[-1])
+				pred_y = odeint(odefuncs[0], train_data[:,0,:], t, method='rk4').transpose(0,1)
+				pred_y_inc = odeint(odefuncs[1], torch.zeros_like(train_data[:,0,:]), t, method='rk4').transpose(0,1)
+				val_loss = torch.mean(torch.abs( (pred_y+pred_y_inc) - train_data)).item()
+				print('val loss', val_loss)
+					
+				if best_loss > val_loss:
+					print('saving...', val_loss)
+					#torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
+					best_loss = val_loss 
+
+				plt.figure()
+				plt.tight_layout()
+				save_file = os.path.join(fig_save_path,"image_{:03d}.png".format(frame))
+
+				ndim = train_data.shape[2]
+				fig = plt.figure(figsize=(int(4*(ndim+1)),4))
+				axes = []
+				for i in range(ndim):
+					axes.append(fig.add_subplot(1,ndim+1,i+1))
+					
+					axes[i].plot(t,train_data[0,:,i].detach().numpy(),lw=2,color='k')
+					axes[i].plot(t,pred_y.detach().numpy()[0,:,i],lw=2,color='c',ls='--')
+					axes[i].plot(t,(pred_y+pred_y_inc).detach().numpy()[0,:,i],lw=2,color='m',ls=':')
+
+				axes.append(fig.add_subplot(1,ndim+1,ndim+1))
+				for i in range(parts.shape[1]):
+					axes[ndim].plot(t/t[-1], parts[:,i].detach().numpy())
+
+				plt.savefig(save_file)
+				plt.close(fig)
+				plt.close('all')
+				plt.clf()
+				frame += 1
+	#ckpt = torch.load(ckpt_path)
+	#odefunc.load_state_dict(ckpt['state_dict'])
+	
+	#torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
+
+
+def train_prune_pou_node_ts(odefunc, lr, nepoch, niterbatch, lMB, nMB, odeint_method, train_data, val_data, t, ckpt_path, fig_save_path, frame_index, naug=0):
+	train_data = torch.tensor(train_data)
+	
+	#parameters_to_prune = ((odefunc.net[1], "coeffs"),)
+	
+	params_pou = nn.ParameterList([])
+	params_dict = nn.ParameterList([]) 
+	for n, p in odefunc.named_parameters():
+		if n[-3:] == 'rbf': 
+			print(n, p)
+			params_pou.append(p)
+		else:
+			params_dict.append(p)
+	optimizer = optim.Adamax([{'params': params_pou}, {'params':params_dict}], lr=lr[0])
+	optimizer.param_groups[0]['lr'] = lr[1] 
+	#optimizer = optim.Adamax([{'params':params_dict}], lr=lr[0])
+	#params = odefunc.parameters()
+	#optimizer = optim.Adamax(params, lr=lr)
+	#scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.9987)
+	#scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.97)
+	
+	best_loss = 1e30
+	frame = frame_index 
+	
+	for itr in range(nepoch):
+		#print('=={0:d}=='.format(itr))
+		for i in range(niterbatch):
+			optimizer.zero_grad()
+			batch_y0, batch_t, batch_y_forward = utils.get_batch_ts(train_data,t,lMB,nMB,reverse=False)
+			batch_y0 = torch.nn.functional.pad(batch_y0, (naug,0), "constant", 0)
+			pred_y_forward = odeint(odefunc, batch_y0, batch_t, method=odeint_method).transpose(0,1)
+			loss = torch.mean(torch.abs(pred_y_forward[:,:,naug:] - batch_y_forward))
+			l2_norm = 1e-4*torch.sum(torch.norm(odefunc.net[1].coeffs, p=2, dim=0))
+			#loss += l2_norm
+			print(itr,i,loss.item(),l2_norm.item())
+			loss.backward()
+			optimizer.step()
+		#if itr < 1700:
+		#	scheduler.step()
+	
+		print(itr, loss.item())	
+		if itr % 10 == 0:
+			with torch.no_grad():
+				val_loss = 0
+
+				parts = odefunc.getpoulayer(t/t[-1])
+				pred_y = odeint(odefunc, torch.nn.functional.pad(val_data[:,0,:],(naug,0),"constant",0), t, method='rk4').transpose(0,1)[:,:,naug:]
+				val_loss = torch.mean(torch.abs(pred_y - val_data)).item()
+				print('val loss', val_loss)
+					
+				if best_loss > val_loss:
+					print('saving...', val_loss)
+					torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
+					best_loss = val_loss 
+
+				plt.figure()
+				plt.tight_layout()
+				save_file = os.path.join(fig_save_path,"image_{:03d}.png".format(frame))
+
+				ndim = train_data.shape[2]
+				fig = plt.figure(figsize=(int(4*(ndim+1)),4))
+				axes = []
+				for i in range(ndim):
+					axes.append(fig.add_subplot(1,ndim+1,i+1))
+					
+					axes[i].plot(t,val_data[0,:,i].detach().numpy(),lw=2,color='k')
+					axes[i].plot(t,pred_y.detach().numpy()[0,:,i],lw=2,color='c',ls='--')
+
+				axes.append(fig.add_subplot(1,ndim+1,ndim+1))
+				for i in range(parts.shape[1]):
+					axes[ndim].plot(t/t[-1], parts[:,i].detach().numpy())
+
+				plt.savefig(save_file)
+				plt.close(fig)
+				plt.close('all')
+				plt.clf()
+				frame += 1
+	ckpt = torch.load(ckpt_path)
+	odefunc.load_state_dict(ckpt['state_dict'])
+	
+	#prune.remove(odefunc.net[1], 'coeffs')
+	torch.save({'state_dict': odefunc.state_dict(),}, ckpt_path)
