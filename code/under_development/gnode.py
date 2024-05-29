@@ -94,8 +94,8 @@ class Lambda(nn.Module):
         return DoublePendulum(t, x)
 
 # Parameters for simulation
-nSteps  = 5000
-T       = 50.
+nSteps  = 50001
+T       = 500.
 s0      = torch.tensor([1.0, torch.pi/2., 0., 0.]).float()
 t       = torch.linspace(0., T, nSteps).float()
 
@@ -126,9 +126,9 @@ qData   = torch.cat((X.unsqueeze(-1),Y.unsqueeze(-1)), -1)
 # qData is [nSteps, nEdges, nCoords]
 pData    = torch.from_numpy(np.gradient(qData.numpy(),t.numpy(), axis=0))
 
-qData = qData[::10,:,:]
-pData = pData[::10,:,:]
-t = t[::10]
+qData = qData[:10000:10,:,:].detach().clone()
+pData = pData[:10000:10,:,:].detach().clone()
+t = t[:10000:10].detach().clone()
 
 qpData  = torch.cat((qData, pData), 1).float()
 
@@ -187,7 +187,7 @@ class ODEfunc(nn.Module):
 
 
 qpData.requires_grad=True
-qpData = qpData.reshape((500, 2*4))
+qpData = qpData.reshape((1000, 2*4))
 sData = torch.unsqueeze(torch.linspace(0.,1.,len(t),requires_grad=True),-1)
 sData2 = torch.unsqueeze(torch.linspace(0.,1.,len(t),requires_grad=True),-1)
 sData3 = torch.unsqueeze(torch.linspace(0.,1.,len(t),requires_grad=True),-1)
@@ -224,19 +224,19 @@ with open(f'gnode.csv', 'w+') as csvfile:
 	for itr in range(1, 30001):
 		optimizer.zero_grad()
 		pred_y = odeint(odefunc, qpsData[:1,:], t, rtol=1e-5, atol=1e-6, method='dopri5').to(device).squeeze()
-		loss = torch.mean(torch.abs(pred_y[:,:8] - qpsData[:,:8]).sum(axis=1))
-		print(itr, loss.item())
-		
-		loss.backward()
-		optimizer.step()
+		loss = torch.mean(torch.abs(pred_y[:500,:8] - qpsData[:500,:8]).sum(axis=1))
+		val_loss = torch.mean(torch.abs(pred_y[500:1000,:8] - qpsData[500:1000,:8]).sum(axis=1))
+		print(itr, loss.item(), val_loss.item())
 	
-	
-		if best_loss > loss.item():
-			print('saving ode...', loss.item())
+		if best_loss > val_loss.item():
+			print('saving ode...', val_loss.item())
 			torch.save({
 				'state_dict': odefunc.state_dict(),                                           
 				}, ckpt_path)
-			best_loss = loss.item()
+			best_loss = val_loss.item()
+
+		loss.backward()
+		optimizer.step()
 
 		writer.writerow({'Iteration': itr, 'Training Loss': loss.item(), 'Best Loss': best_loss})
 	
@@ -249,8 +249,8 @@ with open(f'gnode.csv', 'w+') as csvfile:
 			for i in range(4):
 				axes.append(fig.add_subplot(2,2,i+1))
 				for j in range(2):
-					axes[i].plot(t,qpData.reshape((500,4,2))[:,i,j].detach().numpy(),lw=2,color='k')
-					axes[i].plot(t,pred_y[:,:8].reshape((500,4,2))[:,i,j].detach().numpy(),lw=2,color='c',ls='--')
+					axes[i].plot(t,qpData.reshape((1000,4,2))[:,i,j].detach().numpy(),lw=2,color='k')
+					axes[i].plot(t,pred_y[:,:8].reshape((1000,4,2))[:,i,j].detach().numpy(),lw=2,color='c',ls='--')
 			plt.savefig(save_file)
 			plt.close(fig)
 			plt.close('all')
