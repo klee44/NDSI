@@ -4,7 +4,7 @@ Tested KANs as a parameterization technique for neural ODEs
 ### to run the experiments on ODEBench (from ODEFormer)
 
 ```python
-python train_kan.py 
+python train_kan.py --kanlayer 3 2 --grid 5 --k 3 
 ```
 
 - use kanlayer to specify the kan architecture, 
